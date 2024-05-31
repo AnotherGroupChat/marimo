@@ -20,7 +20,7 @@ from marimo._server.uvicorn_utils import initialize_signals
 from marimo._utils.paths import import_files
 
 DEFAULT_PORT = 2718
-PROXY_REGEX = re.compile(r"^(.*):(\d+)$")
+PROXY_REGEX = re.compile(r"^([^/]+)(?::(\d+))?(/.*)?$")
 
 
 def _resolve_proxy(
@@ -45,19 +45,19 @@ def _resolve_proxy(
 
     If the proxy is provided, it will default to port 80. Otherwise if the
     proxy has a port specified, it will use that port.
-    e.g. `example.com:8080`
+    e.g. `example.com:8080/path`
     """
     if not proxy:
-        return port, host
+        return port, host, ""
 
     match = PROXY_REGEX.match(proxy)
     # Our proxy has an explicit port defined, so return that.
     if match:
-        external_host, external_port = match.groups()
-        return int(external_port), external_host
+        external_host, external_port, path = match.groups()
+        return int(external_port or 80), external_host, path
 
     # A default to 80 is reasonable if a proxy is provided.
-    return 80, proxy
+    return 80, proxy, ""
 
 
 def start(
@@ -99,6 +99,10 @@ def start(
 
     log_level = "info" if development_mode else "error"
 
+    (external_port, external_host, external_path) = _resolve_proxy(port, host, proxy)
+    base_url = external_path if external_path else base_url
+    print(f"Running on {external_host}:{external_port} + {base_url}")
+
     app = create_starlette_app(
         base_url=base_url,
         lifespan=lifespans.Lifespans(
@@ -114,7 +118,6 @@ def start(
         enable_auth=not AuthToken.is_empty(session_manager.auth_token),
     )
 
-    (external_port, external_host) = _resolve_proxy(port, host, proxy)
 
     app.state.port = external_port
     app.state.host = external_host
